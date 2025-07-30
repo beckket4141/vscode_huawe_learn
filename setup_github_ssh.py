@@ -25,18 +25,28 @@ def generate_ssh_key(email):
     """生成SSH密钥对"""
     print("正在生成SSH密钥对...")
     try:
+        # 检查是否已存在SSH密钥
+        key_path = os.path.expanduser('~/.ssh/id_ed25519')
+        if os.path.exists(key_path):
+            choice = input("检测到已存在ed25519密钥，是否重新生成？(y/n): ").strip().lower()
+            if choice != 'y':
+                print("使用现有密钥")
+                return True
+        
         # 根据操作系统选择适当的密钥类型
         if platform.system() == "Windows":
             # Windows上优先使用ed25519算法
+            print("提示：生成密钥时您可以选择设置密码短语来保护私钥，也可以直接按回车跳过")
             subprocess.run([
                 'ssh-keygen', '-t', 'ed25519', '-C', email, 
-                '-f', os.path.expanduser('~/.ssh/id_ed25519'), '-N', '""'
+                '-f', os.path.expanduser('~/.ssh/id_ed25519')
             ], check=True, shell=True)
         else:
             # 其他系统也使用ed25519算法
+            print("提示：生成密钥时您可以选择设置密码短语来保护私钥，也可以直接按回车跳过")
             subprocess.run([
                 'ssh-keygen', '-t', 'ed25519', '-C', email,
-                '-f', os.path.expanduser('~/.ssh/id_ed25519'), '-N', ''
+                '-f', os.path.expanduser('~/.ssh/id_ed25519')
             ], check=True)
         
         print("✓ SSH密钥对生成成功")
@@ -182,6 +192,14 @@ Host github.com
     User git
     PreferredAuthentications publickey
 """
+
+    # 检查是否已存在配置
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            content = f.read()
+        if 'github.com' in content.lower():
+            print("✓ GitHub配置已存在，无需重复添加")
+            return True
     
     try:
         with open(config_path, 'a') as f:
@@ -191,6 +209,45 @@ Host github.com
     except Exception as e:
         print(f"✗ 配置SSH失败: {e}")
         return False
+
+
+def check_ssh_agent_status():
+    """检查ssh-agent状态"""
+    print("正在检查ssh-agent状态...")
+    try:
+        result = subprocess.run(['ssh-add', '-l'], capture_output=True, text=True, shell=True)
+        if result.returncode == 0:
+            print("✓ ssh-agent正在运行，已加载的密钥:")
+            print(result.stdout)
+            return True
+        elif result.returncode == 1:
+            print("⚠ ssh-agent正在运行，但未加载任何密钥")
+            return True
+        else:
+            print("✗ ssh-agent未运行或出现错误")
+            print(result.stderr)
+            return False
+    except Exception as e:
+        print(f"✗ 检查ssh-agent状态失败: {e}")
+        return False
+
+
+def manual_ssh_agent_setup():
+    """手动设置ssh-agent的说明"""
+    print("\n手动设置ssh-agent说明:")
+    print("=" * 30)
+    if platform.system() == "Windows":
+        print("Windows系统:")
+        print("1. 打开PowerShell（以管理员身份）")
+        print("2. 运行命令: Start-Service ssh-agent")
+        print("3. 运行命令: ssh-add ~\\.ssh\\id_ed25519")
+        print("\n或者在Git Bash中:")
+        print("1. 运行命令: eval $(ssh-agent -s)")
+        print("2. 运行命令: ssh-add ~/.ssh/id_ed25519")
+    else:
+        print("Mac/Linux系统:")
+        print("1. 运行命令: eval $(ssh-agent -s)")
+        print("2. 运行命令: ssh-add ~/.ssh/id_ed25519")
 
 
 def main():
@@ -216,12 +273,16 @@ def main():
     start_result = start_ssh_agent()
     if not start_result:
         print("提示: 您可以手动启动ssh-agent后继续:")
-        print("  Windows (PowerShell): Start-Service ssh-agent")
-        print("  Windows (Git Bash):   eval $(ssh-agent -s)")
-        print("  Mac/Linux:            eval $(ssh-agent -s)")
+        manual_ssh_agent_setup()
+    
+    # 检查ssh-agent状态
+    check_ssh_agent_status()
     
     # 添加SSH密钥（即使失败也继续）
     add_ssh_key()
+    
+    # 再次检查ssh-agent状态
+    check_ssh_agent_status()
     
     # 显示公钥
     public_key = display_public_key()
