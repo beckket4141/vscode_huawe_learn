@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ssh -T git@github.com#!/usr/bin/env python3
 """
 GitHub SSH配置脚本
 用于自动配置SSH密钥并连接到GitHub，解决网络连接问题
@@ -50,14 +50,53 @@ def start_ssh_agent():
     """启动ssh-agent"""
     print("正在启动ssh-agent...")
     try:
+        # Windows系统使用不同的命令
         if platform.system() == "Windows":
-            subprocess.run(['eval', '$(ssh-agent -s)'], shell=True, check=True)
+            # 尝试多种方式启动ssh-agent
+            try:
+                # 方法1: 直接启动
+                result = subprocess.run(['ssh-agent'], capture_output=True, text=True, shell=True)
+                if result.returncode == 0:
+                    print("✓ ssh-agent启动成功")
+                    # 解析输出获取agent pid
+                    output_lines = result.stdout.strip().split('\n')
+                    for line in output_lines:
+                        if 'Agent pid' in line:
+                            agent_pid = line.split()[-1]
+                            os.environ['SSH_AGENT_PID'] = agent_pid
+                        elif 'set SSH_AUTH_SOCK' in line:
+                            # Windows版本的ssh-agent输出
+                            pass
+                    return True
+            except:
+                pass
+            
+            # 方法2: 使用PowerShell命令
+            try:
+                subprocess.run(['powershell', '-Command', 'Start-Service ssh-agent'], check=True)
+                print("✓ Windows ssh-agent服务启动成功")
+                return True
+            except:
+                pass
+                
+            # 方法3: 使用eval命令 (适用于Git Bash)
+            try:
+                subprocess.run(['eval', '$(ssh-agent -s)'], shell=True, check=True)
+                print("✓ ssh-agent启动成功 (Git Bash)")
+                return True
+            except:
+                pass
+                
+            print("⚠ ssh-agent可能已运行或不需要手动启动")
+            return True
         else:
+            # Unix/Linux/Mac系统
             subprocess.run(['eval', '$(ssh-agent -s)'], shell=True, check=True)
-        print("✓ ssh-agent启动成功")
-        return True
+            print("✓ ssh-agent启动成功")
+            return True
     except subprocess.CalledProcessError:
         print("✗ ssh-agent启动失败")
+        print("提示: 在Windows上，ssh-agent可能已经运行或者不需要手动启动")
         return False
 
 
@@ -69,11 +108,20 @@ def add_ssh_key():
         if not os.path.exists(key_path):
             key_path = os.path.expanduser('~/.ssh/id_rsa')
             
-        subprocess.run(['ssh-add', key_path], check=True, shell=True)
+        # Windows系统需要特殊处理
+        if platform.system() == "Windows":
+            subprocess.run(['ssh-add', key_path], check=True, shell=True)
+        else:
+            subprocess.run(['ssh-add', key_path], check=True)
         print("✓ SSH私钥添加成功")
         return True
-    except subprocess.CalledProcessError:
-        print("✗ SSH私钥添加失败")
+    except subprocess.CalledProcessError as e:
+        print(f"✗ SSH私钥添加失败: {e}")
+        print("提示: 这可能是因为ssh-agent未运行，但不会影响SSH连接")
+        return False
+    except FileNotFoundError as e:
+        print(f"✗ SSH私钥添加失败: {e}")
+        print("提示: 这可能是因为ssh-agent未运行，但不会影响SSH连接")
         return False
 
 
@@ -165,12 +213,15 @@ def main():
         return
     
     # 启动ssh-agent
-    if not start_ssh_agent():
-        return
+    start_result = start_ssh_agent()
+    if not start_result:
+        print("提示: 您可以手动启动ssh-agent后继续:")
+        print("  Windows (PowerShell): Start-Service ssh-agent")
+        print("  Windows (Git Bash):   eval $(ssh-agent -s)")
+        print("  Mac/Linux:            eval $(ssh-agent -s)")
     
-    # 添加SSH密钥
-    if not add_ssh_key():
-        return
+    # 添加SSH密钥（即使失败也继续）
+    add_ssh_key()
     
     # 显示公钥
     public_key = display_public_key()
@@ -178,7 +229,10 @@ def main():
         return
     
     print("\n" + "=" * 50)
-    print("下一步操作:")
+    print("重要提示:")
+    print("即使ssh-agent相关步骤失败，也不会影响SSH连接的使用。")
+    print("只要您已将上面的SSH公钥添加到GitHub账户，就可以正常连接。")
+    print("\n下一步操作:")
     print("1. 复制上面的SSH公钥")
     print("2. 登录GitHub账户")
     print("3. 进入Settings > SSH and GPG keys")
