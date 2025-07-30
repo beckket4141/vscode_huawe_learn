@@ -1,4 +1,4 @@
-ssh -T git@github.com#!/usr/bin/env python3
+#ssh -T git@github.com#!/usr/bin/env python3
 """
 GitHub SSH配置脚本
 用于自动配置SSH密钥并连接到GitHub，解决网络连接问题
