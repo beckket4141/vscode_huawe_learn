@@ -1,1 +1,2 @@
-#test AllinOneSegmentTree.py
+strs=list(map(str,input().split()))
+print(*strs)
