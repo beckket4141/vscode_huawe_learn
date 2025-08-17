@@ -1,16 +1,47 @@
-n = int(input())
-nums = list(map(int, input().split()))
-total = int(input())
+import sys
+from collections import deque
+class Solution:
+    def mindistance(self,grid):
+        m, n = len(grid), len(grid[0])
+        start = []
+        des = []
+        res = 0
+        for i in range(m):
+            for j in range(n):
+                if grid[i][j] == 1:
+                    start.append((i,j))
+                elif grid[i][j] == 0:
+                    des.append((i,j))
+        for i in range(len(start)):
+            distance = self.bfs(grid,start[i])
+            if distance > 0:
+                res += self.bfs(grid,start[i])
+        return res
 
-# 如果总和是奇数，直接返回0
-target = total
-    # 初始化dp数组，dp[j]表示和为j的方案数
-dp = [0] * (target + 1)
-dp[0] = 1  # 空子集的和为0，方案数为1
+    def bfs(self, grid, start):
+        m, n =len(grid), len(grid[0])
+        visited = [[-1]*n for _ in range(m)]
+        visited[start[0]][start[1]] = 0
+        q = deque()
+        q.append(start)
+        directions = [(-1,0), (1,0), (0,-1), (0,1)]
+        while q:
+            x, y = q.popleft()
+            for dx, dy in directions:
+                nx, ny = x+dx, y+dy
+                if 0<=nx<m and 0<=ny<n and visited[nx][ny] == -1 and grid[nx][ny] != -1:
+                    if grid[nx][ny] == 0:
+                        return visited[x][y]+1
+                    visited[nx][ny] = visited[x][y]+1
+        return 0
+
+if __name__ == "__main__":
+    input = sys.stdin.readline
+    m, n = map(int, input().strip().split())
+    grid = [[] for _ in range(m)]
+    for i in range(m):
+        grid[i] = list(map(int, input().strip().split()))
+    solution = Solution()
+    print(solution.mindistance(grid))
     
-for num in nums:
-    # 从target逆向遍历到num，避免重复使用当前元素
-    for j in range(target, num - 1, -1):
-        dp[j] += dp[j - num]
-    
-print(dp[target])
+        
