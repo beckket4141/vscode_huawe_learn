@@ -1,2 +1,5 @@
-grap = [0]*5
-print(grap)
+a = set()
+a.add(1)
+a.add(2)
+a.add(1)
+print(a)
