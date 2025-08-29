@@ -1,9 +1,5 @@
-import sys
-def main():
-    m, n = map(int, sys.stdin.readline().split())
-    grid = [list(map(int, sys.stdin.readline().split())) for _ in range(m)]
+n, k = map(int, input().strip().split())
+s = input().strip()
 
-
-    print(grid)
-if __name__ == '__main__':
-    main()
+ords = [ord(c) for c in s]
+print(ords)  # --- IGNORE ---
