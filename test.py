@@ -1,14 +1,6 @@
-import sys
-def main():
-    input = sys.stdin.read
-    data = list(map(int, input().split()))
-    n, k = data[0], data[1]
-    grid = [[True]*n for _ in range(n)]
-    idx = 2
-    for i in range(k):
-        grid[data[idx]][data[idx+1]] = False
-        idx += 2
-    print(grid)
+a = [1,3,4,5,2]
+a.sort(reverse=True)
+print(a)
 
-if __name__ == "__main__":
-    main()
+b = float("inf")
+print(b)
