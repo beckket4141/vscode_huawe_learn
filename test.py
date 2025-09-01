@@ -1,6 +1,6 @@
-a = [1,3,4,5,2]
-a.sort(reverse=True)
-print(a)
+s = 2
 
-b = float("inf")
-print(b)
+if s%2:
+    print("1")
+else:
+    print("0")
