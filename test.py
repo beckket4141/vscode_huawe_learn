@@ -1,6 +1,11 @@
-s = 2
 
-if s%2:
-    print("1")
-else:
-    print("0")
+def main():
+    n, m = map(int, input().strip().split())
+    nums = []
+    for i in range(m):
+        geshu, num = map(int, input().strip().split())
+        nums.append((geshu, num))
+    print(nums)
+
+if __name__ == "__main__":
+    main()
