@@ -1,0 +1,458 @@
+好的！我根据你们实验室的实际情况重新整理：
+
+## 设备连接全景图（实际版本）
+
+```
+┌─────────────────电脑─────────────────┐
+│                                     │
+├─显卡HDMI/DP端口─────────────────────┤──→ SLM
+│                                     │
+├─USB端口(VISA协议)──────────────────┤──→ 示波器
+│                                     │
+├─USB端口(VISA协议)──────────────────┤──→ 波长计
+│                                     │
+├─USB转串口(COM3,RS232)──────────────┤──→ 温度控制器
+│                                     │
+├─USB转串口(COM4,RS232)──────────────┤──→ 功率计
+│                                     │
+└─────────────────────────────────────┘
+```
+
+## 1. SLM（空间光调制器）- 不变
+
+### 接口类型：**显示接口**
+```python
+import cv2
+import numpy as np
+
+class SLMController:
+    def __init__(self):
+        self.width = 1920
+        self.height = 1152
+        
+    def display_image(self, image_array):
+        """显示图像到SLM"""
+        cv2.namedWindow('SLM_Display', cv2.WINDOW_NORMAL)
+        cv2.moveWindow('SLM_Display', 1920, 0)  # 移动到第二个显示器
+        cv2.setWindowProperty('SLM_Display', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        
+        image_uint8 = (image_array * 255).astype(np.uint8)
+        cv2.imshow('SLM_Display', image_uint8)
+        cv2.waitKey(1)
+```
+
+## 2. 示波器 - 不变
+
+### 接口类型：**USB VISA协议**
+```python
+import pyvisa
+import numpy as np
+
+class OscilloscopeController:
+    def __init__(self, visa_address='USB0::0x0699::0x0368::C033233::INSTR'):
+        rm = pyvisa.ResourceManager()
+        self.scope = rm.open_resource(visa_address)
+        self.scope.timeout = 5000
+        
+    def read_waveform(self, channel=1):
+        """读取波形数据"""
+        self.scope.write(f'DAT:SOU CH{channel}')
+        waveform = self.scope.query_binary_values('CURV?', datatype='h')
+        
+        y_scale = float(self.scope.query('WFMPRE:YMULT?'))
+        y_offset = float(self.scope.query('WFMPRE:YZERO?'))
+        voltage = np.array(waveform) * y_scale + y_offset
+        return voltage
+```
+
+## 3. 波长计 - **改为USB VISA**
+
+### 接口类型：**USB VISA协议**
+```python
+import pyvisa
+import time
+
+class WavelengthMeterController:
+    def __init__(self, visa_address='USB0::0x1234::0x5678::WM123456::INSTR'):
+        """
+        常见USB波长计：
+        - HighFinesse WSx系列：'USB0::0x0BD7::0xA102::123456::INSTR'
+        - Bristol 621A：'USB0::0x1313::0x8076::621A123456::INSTR'
+        - Burleigh WA-1500：'USB0::0x1234::0x1234::123456::INSTR'
+        """
+        rm = pyvisa.ResourceManager()
+        self.wm = rm.open_resource(visa_address)
+        self.wm.timeout = 3000
+        
+        # 初始化设置
+        self.setup_wavelength_meter()
+        
+    def setup_wavelength_meter(self):
+        """初始化波长计设置"""
+        try:
+            # 检查设备状态
+            idn = self.wm.query('*IDN?')
+            print(f"波长计连接成功: {idn}")
+            
+            # 设置测量模式（如果支持）
+            self.wm.write('MEAS:MODE CONT')  # 连续测量模式
+            
+        except Exception as e:
+            print(f"波长计初始化错误: {e}")
+    
+    def read_wavelength(self):
+        """读取波长值"""
+        try:
+            # 不同厂商的命令可能不同
+            response = self.wm.query('MEAS:SCAL:POW:WAV?')  # HighFinesse风格
+            # 或者：response = self.wm.query('WAV?')  # 简化命令
+            
+            wavelength = float(response.strip())
+            return wavelength  # 单位：nm
+            
+        except Exception as e:
+            print(f"波长读取错误: {e}")
+            return None
+    
+    def read_power_level(self):
+        """读取光功率级别"""
+        try:
+            response = self.wm.query('MEAS:SCAL:POW?')
+            power_level = float(response.strip())
+            return power_level
+        except Exception as e:
+            print(f"功率级别读取错误: {e}")
+            return None
+    
+    def get_measurement_status(self):
+        """获取测量状态"""
+        try:
+            status = self.wm.query('MEAS:STAT?')
+            return status.strip()
+        except Exception as e:
+            print(f"状态查询错误: {e}")
+            return "ERROR"
+```
+
+### 原理：
+- **USB VISA连接**：波长计通过USB实现VISA协议
+- **SCPI命令集**：标准化的仪器控制命令
+- **高精度数据**：直接返回浮点数，精度通常到pm级别
+
+## 4. 温度控制器 - **COM3串口**
+
+### 接口类型：**串口RS232/RS485**
+```python
+import serial
+import time
+import struct
+
+class TemperatureController:
+    def __init__(self, port='COM3'):
+        """
+        实验室常见温度控制器：
+        - 欧姆龙E5CC系列
+        - 松下KT4系列  
+        - 岛电SR系列
+        - 艾默生温控器
+        """
+        self.ser = serial.Serial(
+            port=port,
+            baudrate=9600,      # 常见波特率：9600, 19200
+            bytesize=8,
+            parity='N',         # 无校验
+            stopbits=1,
+            timeout=2
+        )
+        time.sleep(0.5)  # 等待连接稳定
+        
+        # 获取设备信息
+        self.device_id = 1  # 设备ID，多设备时使用
+        
+    def read_current_temperature(self):
+        """读取当前温度"""
+        try:
+            # 方式1：ASCII命令方式（欧姆龙等）
+            command = f"R{self.device_id:02d}01\r\n"  # 读取当前值
+            self.ser.write(command.encode('ascii'))
+            
+            response = self.ser.readline().decode('ascii').strip()
+            
+            # 解析回复：通常格式为 "R0101+0250" (表示25.0°C)
+            if response.startswith('R'):
+                temp_str = response[4:]  # 去掉前缀
+                if temp_str.startswith('+') or temp_str.startswith('-'):
+                    temp_raw = int(temp_str)
+                    temperature = temp_raw / 10.0  # 转换为实际温度
+                    return temperature
+            
+            return None
+            
+        except Exception as e:
+            print(f"温度读取错误: {e}")
+            return None
+    
+    def read_target_temperature(self):
+        """读取设定温度"""
+        try:
+            command = f"R{self.device_id:02d}02\r\n"  # 读取设定值
+            self.ser.write(command.encode('ascii'))
+            
+            response = self.ser.readline().decode('ascii').strip()
+            if response.startswith('R'):
+                temp_str = response[4:]
+                if temp_str.startswith('+') or temp_str.startswith('-'):
+                    temp_raw = int(temp_str)
+                    target_temp = temp_raw / 10.0
+                    return target_temp
+            
+            return None
+            
+        except Exception as e:
+            print(f"设定温度读取错误: {e}")
+            return None
+    
+    def set_target_temperature(self, target_temp):
+        """设置目标温度"""
+        try:
+            # 转换为设备格式：25.5°C -> +0255
+            temp_raw = int(target_temp * 10)
+            sign = '+' if temp_raw >= 0 else '-'
+            temp_str = f"{sign}{abs(temp_raw):04d}"
+            
+            command = f"W{self.device_id:02d}02{temp_str}\r\n"
+            self.ser.write(command.encode('ascii'))
+            
+            # 读取确认回复
+            response = self.ser.readline().decode('ascii').strip()
+            
+            if response.startswith('W'):
+                print(f"温度设定成功: {target_temp}°C")
+                return True
+            else:
+                print(f"温度设定失败: {response}")
+                return False
+                
+        except Exception as e:
+            print(f"温度设定错误: {e}")
+            return False
+    
+    def get_controller_status(self):
+        """获取控制器状态"""
+        try:
+            command = f"R{self.device_id:02d}03\r\n"  # 读取状态
+            self.ser.write(command.encode('ascii'))
+            
+            response = self.ser.readline().decode('ascii').strip()
+            
+            # 解析状态位（具体含义看设备手册）
+            if response.startswith('R'):
+                status_raw = response[4:]
+                status_int = int(status_raw)
+                
+                status = {
+                    'heating': bool(status_int & 0x01),      # 加热中
+                    'cooling': bool(status_int & 0x02),      # 制冷中  
+                    'alarm': bool(status_int & 0x04),        # 报警
+                    'auto_mode': bool(status_int & 0x08),    # 自动模式
+                }
+                return status
+            
+            return None
+            
+        except Exception as e:
+            print(f"状态读取错误: {e}")
+            return None
+```
+
+### 原理：
+- **串口ASCII协议**：发送文本命令，接收文本回复
+- **设备地址**：多设备时用ID区分
+- **数据格式**：温度值通常放大10倍传输（避免小数点）
+
+## 5. 功率计 - **保持COM4串口**
+
+### 接口类型：**串口RS232**
+
+```python
+import serial
+import time
+
+class PowerMeterController:
+    def __init__(self, port='COM4'):
+        """
+        常见功率计：
+        - Newport 1930C/1936C
+        - Thorlabs PM100D/PM400
+        - Ophir Vega/Nova
+        """
+        self.ser = serial.Serial(
+            port=port,
+            baudrate=9600,
+            bytesize=8,
+            parity='N',
+            stopbits=1,
+            timeout=1
+        )
+        time.sleep(0.1)
+        
+    def read_power(self):
+        """读取功率值"""
+        try:
+            self.ser.reset_input_buffer()
+            
+            # Newport风格命令
+            self.ser.write(b'D?\r\n')  # 或者 'READ?\r\n'
+            
+            response = self.ser.readline().decode('ascii').strip()
+            power = float(response)
+            return power  # 单位：W
+            
+        except Exception as e:
+            print(f"功率读取错误: {e}")
+            return None
+    
+    def set_wavelength(self, wavelength_nm):
+        """设置测量波长"""
+        command = f'W{wavelength_nm}\r\n'
+        self.ser.write(command.encode('ascii'))
+```
+
+## 综合控制系统
+
+```python
+import time
+import threading
+import queue
+
+class MultiDeviceController:
+    def __init__(self):
+        """初始化所有设备"""
+        print("正在连接设备...")
+        
+        # 显示设备
+        self.slm = SLMController()
+        print("✓ SLM连接成功")
+        
+        # USB VISA设备
+        try:
+            self.scope = OscilloscopeController('USB0::0x0699::0x0368::C033233::INSTR')
+            print("✓ 示波器连接成功")
+        except:
+            print("✗ 示波器连接失败")
+            
+        try:
+            self.wavelength_meter = WavelengthMeterController('USB0::0x0BD7::0xA102::WM123456::INSTR')
+            print("✓ 波长计连接成功")
+        except:
+            print("✗ 波长计连接失败")
+        
+        # 串口设备
+        try:
+            self.temp_controller = TemperatureController('COM3')
+            print("✓ 温度控制器连接成功(COM3)")
+        except:
+            print("✗ 温度控制器连接失败(COM3)")
+            
+        try:
+            self.power_meter = PowerMeterController('COM4')
+            print("✓ 功率计连接成功(COM4)")
+        except:
+            print("✗ 功率计连接失败(COM4)")
+        
+    def synchronized_measurement(self, image_list, target_temperature=25.0):
+        """多设备同步测量"""
+        results = []
+        
+        # 设置目标温度
+        self.temp_controller.set_target_temperature(target_temperature)
+        print(f"温度设定为: {target_temperature}°C")
+        
+        for i, image in enumerate(image_list):
+            print(f"\n=== 测量图像 {i} ===")
+            
+            # 1. 显示SLM图像
+            start_time = time.perf_counter()
+            self.slm.display_image(image)
+            time.sleep(0.1)  # SLM稳定时间
+            
+            # 2. 同时读取所有设备
+            current_temp = self.temp_controller.read_current_temperature()
+            target_temp = self.temp_controller.read_target_temperature()
+            temp_status = self.temp_controller.get_controller_status()
+            
+            power = self.power_meter.read_power()
+            
+            wavelength = self.wavelength_meter.read_wavelength()
+            power_level = self.wavelength_meter.read_power_level()
+            
+            waveform = self.scope.read_waveform(channel=1)
+            
+            # 3. 保存结果
+            result = {
+                'image_id': i,
+                'timestamp': start_time,
+                'temperature': {
+                    'current': current_temp,
+                    'target': target_temp,
+                    'status': temp_status
+                },
+                'power_W': power,
+                'wavelength': {
+                    'value_nm': wavelength,
+                    'power_level': power_level
+                },
+                'scope_data': waveform
+            }
+            results.append(result)
+            
+            # 4. 打印测量结果
+            print(f"当前温度: {current_temp}°C (目标: {target_temp}°C)")
+            print(f"光功率: {power}W")
+            print(f"波长: {wavelength}nm (功率级别: {power_level})")
+            print(f"示波器采集: {len(waveform)}个数据点")
+            
+            if temp_status:
+                status_str = []
+                if temp_status['heating']: status_str.append("加热中")
+                if temp_status['cooling']: status_str.append("制冷中")
+                if temp_status['alarm']: status_str.append("报警")
+                print(f"温控状态: {', '.join(status_str) if status_str else '稳定'}")
+            
+        return results
+
+# 使用示例
+if __name__ == "__main__":
+    # 创建控制器
+    controller = MultiDeviceController()
+    
+    # 准备测量图像
+    import numpy as np
+    test_images = [
+        np.random.rand(1152, 1920),  # 随机图像1
+        np.zeros((1152, 1920)),      # 黑图
+        np.ones((1152, 1920)),       # 白图
+    ]
+    
+    # 开始同步测量
+    results = controller.synchronized_measurement(test_images, target_temperature=25.0)
+    
+    # 保存结果
+    import pickle
+    with open('measurement_results.pkl', 'wb') as f:
+        pickle.dump(results, f)
+    
+    print(f"\n测量完成！共采集{len(results)}组数据")
+```
+
+## 更新后的设备总结表
+
+| 设备           | 端口     | Python库     | 连接协议      | 数据格式    | 备注             |
+| -------------- | -------- | ------------ | ------------- | ----------- | ---------------- |
+| SLM            | HDMI/DP  | OpenCV       | 显卡驱动      | 图像数据    | 当显示器使用     |
+| 示波器         | USB      | PyVISA       | VISA/SCPI     | 文本+二进制 | 高速数据采集     |
+| **波长计**     | **USB**  | **PyVISA**   | **VISA/SCPI** | **文本**    | **精密波长测量** |
+| **温度控制器** | **COM3** | **PySerial** | **ASCII命令** | **文本**    | **工业控制**     |
+| 功率计         | COM4     | PySerial     | ASCII命令     | 文本        | 光功率测量       |
+
+现在符合你们实验室的实际配置了！波长计用USB VISA连接，温度控制器用COM3串口连接。

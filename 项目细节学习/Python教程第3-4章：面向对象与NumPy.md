@@ -154,6 +154,7 @@ class FileManager:
 ```
 
 #### 3.1.2 开闭原则 (OCP) - 扩展开放，修改封闭
+
 ```python
 from abc import ABC, abstractmethod
 from typing import Protocol, runtime_checkable

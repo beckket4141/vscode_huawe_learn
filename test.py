@@ -1,2 +1,3 @@
-a = [(1,2), (3,4), (2,3)]
-print(" ".join(str(x[1]) for x in a))
+duplicate_modes = [1, -1, 2, 1, -1, 3, 2]
+unique_modes = list(set(duplicate_modes))
+print(unique_modes)
