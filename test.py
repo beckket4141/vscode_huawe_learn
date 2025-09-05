@@ -1,3 +1,8 @@
-duplicate_modes = [1, -1, 2, 1, -1, 3, 2]
-unique_modes = list(set(duplicate_modes))
-print(unique_modes)
+n = int(input().strip())
+areas = [[] for _ in range(n)]
+for i in range(n):
+    s, e = map(str, input().strip("[]").split(","))
+    sl, el = list(map(int, s.split("."))), list(map(int,e.split(".")))
+    areas[i] = [sl, el]
+
+print(areas)
