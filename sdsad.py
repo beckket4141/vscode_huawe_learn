@@ -1,3 +1,3 @@
-from collections import defaultdict
-a = defaultdict("0")
-print(a[0])
+a = [2,3,4]
+for i, b in enumerate(a):
+    print(i,b)

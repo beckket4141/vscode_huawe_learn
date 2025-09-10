@@ -1,2 +1,3 @@
-a = 1
-print(len(a))
+import sys
+line = list(sys.stdin.readline().strip().split())
+print(line)
